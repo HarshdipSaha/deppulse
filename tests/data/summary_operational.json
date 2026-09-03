@@ -1,0 +1,10 @@
+{
+  "page": { "id": "abc", "name": "Example Provider" },
+  "status": { "indicator": "none", "description": "All Systems Operational" },
+  "components": [
+    { "name": "API", "status": "operational", "group": false },
+    { "name": "Dashboard", "status": "operational", "group": false }
+  ],
+  "incidents": [],
+  "scheduled_maintenances": []
+}

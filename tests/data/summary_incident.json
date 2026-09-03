@@ -1,0 +1,13 @@
+{
+  "page": { "id": "xyz", "name": "Example Provider" },
+  "status": { "indicator": "major", "description": "Partial System Outage" },
+  "components": [
+    { "name": "API", "status": "partial_outage", "group": false },
+    { "name": "Webhooks", "status": "degraded_performance", "group": false },
+    { "name": "Dashboard", "status": "operational", "group": false }
+  ],
+  "incidents": [
+    { "name": "Elevated 5xx errors on API", "impact": "major", "status": "investigating", "shortlink": "https://stspg.io/x1" }
+  ],
+  "scheduled_maintenances": []
+}

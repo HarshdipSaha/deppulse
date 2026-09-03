@@ -1,0 +1,17 @@
+# DepPulse network allowlist (pinned).
+# The probe/browse legs refuse to contact any host not listed here.
+# This is the COMPLETE set of hosts DepPulse may reach. Audit it before running.
+# Keep in sync with adapters/dep-providers.table.json.
+www.githubstatus.com
+status.npmjs.org
+status.python.org
+www.dockerstatus.com
+status.openai.com
+status.claude.com
+www.cloudflarestatus.com
+www.vercel-status.com
+www.netlifystatus.com
+status.twilio.com
+status.datadoghq.com
+health.aws.amazon.com
+status.stripe.com

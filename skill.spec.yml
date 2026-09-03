@@ -1,0 +1,115 @@
+# DepPulse — Play contract (SkillSpec-style).
+# Machine-checkable summary of what this Play does, what it may touch, and how a
+# run is proven complete. Audit this before you run it: it is the whole story.
+name: deppulse
+version: 1
+summary: >
+  Zero-credential, read-only status board. Scans the current repo's lockfiles,
+  maps the dependencies you actually use to a pinned provider->status-page table,
+  checks each matched provider's live incident state, and prints one worst-first
+  traffic-light board with a single top verdict plus an honest coverage line.
+
+route:
+  when: "A build/deploy/run just broke and you need to rule out an upstream incident before debugging your own code."
+  audience: "Any developer or agent-harness user with a repo that has dependencies."
+
+inputs:
+  - name: repo_path
+    type: path
+    required: false
+    default: "."
+    note: "Only files inside this directory are read."
+  - name: providers
+    type: csv
+    required: false
+    note: "Override auto-detection; check exactly these provider ids."
+  - name: browser
+    type: flag
+    required: false
+    default: false
+    note: "Enable the best-effort browser leg for JSON-less pages (AWS, Stripe). Off by default."
+  - name: url
+    type: url
+    required: false
+    note: "Also liveness-check YOUR own endpoint (credential-free GET)."
+  - name: format
+    type: enum[board, json]
+    required: false
+    default: board
+
+phases:
+  - id: scan
+    adapter: proc
+    action: "Read-only, cwd-confined parse of package.json/lockfiles, requirements.txt/pyproject, go.mod, Dockerfile, .github/workflows. Emit detected deps + context + scanned_files."
+    unit: "@u1"
+  - id: map
+    adapter: extract
+    action: "Deterministic join of @u1 against the pinned dep-providers.table.json. Emit matched[], manual[], and counts{detected,matched,no_status_page}."
+    unit: "@u2"
+  - id: probe
+    adapter: probe
+    action: "Credential-free public GET of each matched JSON provider's /api/v2/summary.json (fan-out). Parse indicator + components + active incidents. Any failure degrades ONE row to 'unknown'."
+    unit: "@u3"
+  - id: browse
+    adapter: browse
+    optional: true
+    default_off: true
+    action: "Best-effort read-only read of JSON-less status pages (AWS Health, Stripe). Degrades to 'unknown' on drift/timeout."
+    unit: "@u4"
+  - id: self
+    adapter: probe
+    optional: true
+    action: "Single credential-free liveness+latency GET on the user-supplied --url."
+    unit: "@u5"
+  - id: compose
+    adapter: extract
+    action: "Merge into the fixed-shape worst-first board: top verdict + one row per provider (light, incident title, status_url, triggering dependency) + coverage line."
+    unit: "@u_board"
+
+allowed_tools:            # deny-by-default; everything not listed is forbidden
+  proc:
+    read: true
+    write: false
+    scope: cwd            # never reads outside repo_path
+    exec_project_code: false
+  probe:
+    methods: [GET]
+    auth: none
+    hosts_from: adapters/status-allowlist.txt   # network is pinned to this allowlist
+  browse:
+    read_only: true
+    default: off
+    hosts_from: adapters/status-allowlist.txt
+  extract:
+    pure: true
+
+effects:
+  writes: []              # nothing is written to your repo or system
+  credentials: []         # nothing to hand over — the empty set is the point
+  network:
+    egress: GET-only
+    allowlist: adapters/status-allowlist.txt
+    note: "Plus, only if you pass --url, one GET to the host you name."
+
+doctor_expectation:       # what a clean run should show
+  credential_reads: none
+  writes: none
+  file_access: read-only, cwd-confined
+  network: "bounded to the pinned status allowlist (the one expected flag)"
+
+checks:                   # completion proof — all must hold, checkable from the trace
+  - "exit code is 0 (or 1 only when a provider is in a real problem state)"
+  - "@u1 scanned_files is non-empty"
+  - "@u2 satisfies detected == matched + no_status_page"
+  - "every board row has a severity in {major_outage,partial_outage,degraded,maintenance,unknown,operational}"
+  - "every board row's reason names a dependency/context present in @u1"
+  - "rows are ordered worst-first (non-decreasing severity rank)"
+  - "verdict degraded-count equals the number of rows in a problem state"
+  - "coverage line X/Y/Z equals @u2.counts"
+  - "re-composing from the same @u2/@u3 yields a byte-identical board (determinism)"
+
+completion_proof: >
+  A run is complete and trustworthy when the checks above pass. Determinism is
+  proven by re-composing the board from captured @units and diffing to byte
+  equality; only live incident state and the per-repo dependency set introduce
+  the intended run-to-run variation.

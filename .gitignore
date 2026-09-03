@@ -1,0 +1,7 @@
+runs/
+__pycache__/
+*.pyc
+u1.json
+u2.json
+u3.json
+board_*.json

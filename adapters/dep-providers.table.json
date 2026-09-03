@@ -1,0 +1,150 @@
+{
+  "version": "v1",
+  "description": "Pinned, inspectable provider -> status-page table for DepPulse. Every summary_json_url was verified to return HTTP 200 application/json on 2026-08-24. Audit this file before you run the Play: it is the complete list of hosts DepPulse will contact and why each maps to your dependencies.",
+  "providers": [
+    {
+      "id": "github",
+      "name": "GitHub",
+      "leg": "json",
+      "summary_json_url": "https://www.githubstatus.com/api/v2/summary.json",
+      "status_url": "https://www.githubstatus.com",
+      "match": {
+        "deps": ["octokit", "@octokit/*", "probot", "@actions/*"],
+        "ecosystems": [],
+        "context": ["github_actions"]
+      }
+    },
+    {
+      "id": "npm",
+      "name": "npm Registry",
+      "leg": "json",
+      "summary_json_url": "https://status.npmjs.org/api/v2/summary.json",
+      "status_url": "https://status.npmjs.org",
+      "match": { "deps": [], "ecosystems": ["npm"], "context": [] }
+    },
+    {
+      "id": "pypi",
+      "name": "PyPI / Python",
+      "leg": "json",
+      "summary_json_url": "https://status.python.org/api/v2/summary.json",
+      "status_url": "https://status.python.org",
+      "match": { "deps": [], "ecosystems": ["pypi"], "context": [] }
+    },
+    {
+      "id": "dockerhub",
+      "name": "Docker Hub",
+      "leg": "json",
+      "summary_json_url": "https://www.dockerstatus.com/api/v2/summary.json",
+      "status_url": "https://www.dockerstatus.com",
+      "match": { "deps": [], "ecosystems": [], "context": ["dockerhub_image"] }
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "leg": "json",
+      "summary_json_url": "https://status.openai.com/api/v2/summary.json",
+      "status_url": "https://status.openai.com",
+      "match": {
+        "deps": ["openai", "openai-*", "@openai/*", "langchain-openai", "tiktoken"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic / Claude",
+      "leg": "json",
+      "summary_json_url": "https://status.claude.com/api/v2/summary.json",
+      "status_url": "https://status.anthropic.com",
+      "match": {
+        "deps": ["anthropic", "@anthropic-ai/*", "langchain-anthropic"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "leg": "json",
+      "summary_json_url": "https://www.cloudflarestatus.com/api/v2/summary.json",
+      "status_url": "https://www.cloudflarestatus.com",
+      "match": {
+        "deps": ["wrangler", "@cloudflare/*", "cloudflare", "miniflare"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "leg": "json",
+      "summary_json_url": "https://www.vercel-status.com/api/v2/summary.json",
+      "status_url": "https://www.vercel-status.com",
+      "match": {
+        "deps": ["vercel", "@vercel/*"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "netlify",
+      "name": "Netlify",
+      "leg": "json",
+      "summary_json_url": "https://www.netlifystatus.com/api/v2/summary.json",
+      "status_url": "https://www.netlifystatus.com",
+      "match": {
+        "deps": ["netlify", "netlify-cli", "@netlify/*"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "twilio",
+      "name": "Twilio",
+      "leg": "json",
+      "summary_json_url": "https://status.twilio.com/api/v2/summary.json",
+      "status_url": "https://status.twilio.com",
+      "match": {
+        "deps": ["twilio", "@twilio/*"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "datadog",
+      "name": "Datadog",
+      "leg": "json",
+      "summary_json_url": "https://status.datadoghq.com/api/v2/summary.json",
+      "status_url": "https://status.datadoghq.com",
+      "match": {
+        "deps": ["dd-trace", "ddtrace", "datadog", "@datadog/*", "datadog-api-client"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "aws",
+      "name": "AWS Health",
+      "leg": "browser",
+      "summary_json_url": null,
+      "status_url": "https://health.aws.amazon.com/health/status",
+      "match": {
+        "deps": ["boto3", "botocore", "aws-sdk", "@aws-sdk/*", "aws-cdk", "aws-cdk-lib", "aws-amplify", "@aws-amplify/*"],
+        "ecosystems": [],
+        "context": []
+      }
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "leg": "browser",
+      "summary_json_url": null,
+      "status_url": "https://status.stripe.com",
+      "match": {
+        "deps": ["stripe", "@stripe/*"],
+        "ecosystems": [],
+        "context": []
+      }
+    }
+  ]
+}
