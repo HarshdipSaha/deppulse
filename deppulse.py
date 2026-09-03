@@ -552,6 +552,23 @@ def build_board(mapped, probed, self_status=None):
     }
 
 
+def stdout_supports_emoji(stream=None):
+    """Windows consoles default to cp1252, which cannot encode the traffic lights.
+    Ask for UTF-8 first; if the stream still refuses an emoji, report False so the
+    board silently drops to the ASCII markers instead of dying mid-render."""
+    stream = stream if stream is not None else sys.stdout
+    try:
+        stream.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError, ValueError):
+        pass
+    enc = getattr(stream, "encoding", None) or "ascii"
+    try:
+        "".join(EMOJI.values()).encode(enc)
+    except (LookupError, UnicodeEncodeError):
+        return False
+    return True
+
+
 def render_board(board, use_emoji=True):
     lights = EMOJI if use_emoji else {k: "[%s]" % v for k, v in LIGHT.items()}
     v = board["verdict"]
@@ -661,7 +678,7 @@ def main(argv=None):
         if args.format == "json":
             print(json.dumps(board, indent=2))
         else:
-            print(render_board(board, use_emoji=not args.no_emoji))
+            print(render_board(board, use_emoji=not args.no_emoji and stdout_supports_emoji()))
         return _exit_code(board)
 
     if args.cmd == "run":
@@ -675,7 +692,7 @@ def main(argv=None):
         if args.format == "json":
             print(json.dumps(board, indent=2))
         else:
-            print(render_board(board, use_emoji=not args.no_emoji))
+            print(render_board(board, use_emoji=not args.no_emoji and stdout_supports_emoji()))
         return _exit_code(board)
 
     p.print_help()
