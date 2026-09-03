@@ -173,5 +173,45 @@ class TestComposeAndDeterminism(unittest.TestCase):
         self.assertIn("all systems green", board["verdict"]["text"])
 
 
+class TestEncodingFallback(unittest.TestCase):
+    """A Windows console/pipe on cp1252 cannot encode the traffic lights. The
+    board must degrade to ASCII markers rather than die with UnicodeEncodeError."""
+
+    class _Stream(object):
+        def __init__(self, encoding, reconfigurable=False):
+            self.encoding = encoding
+            self._reconfigurable = reconfigurable
+
+        def reconfigure(self, encoding=None, **kw):
+            if not self._reconfigurable:
+                raise OSError("not reconfigurable")
+            self.encoding = encoding
+
+    def test_cp1252_stream_refuses_emoji(self):
+        self.assertFalse(dp.stdout_supports_emoji(self._Stream("cp1252")))
+
+    def test_utf8_stream_accepts_emoji(self):
+        self.assertTrue(dp.stdout_supports_emoji(self._Stream("utf-8")))
+
+    def test_reconfigure_rescues_a_legacy_stream(self):
+        stream = self._Stream("cp1252", reconfigurable=True)
+        self.assertTrue(dp.stdout_supports_emoji(stream))
+        self.assertEqual(stream.encoding, "utf-8")
+
+    def test_ascii_board_renders_every_severity(self):
+        board = {
+            "verdict": {"level": "major_outage", "text": "1 provider(s) degraded"},
+            "rows": [], "manual": [], "self": None,
+            "coverage": {"checked": 0, "detected": 0, "no_status_page": 0,
+                         "files": 0, "dependencies": 0},
+            "table_version": "1",
+        }
+        for level in dp.SEVERITY_ORDER:
+            board["verdict"]["level"] = level
+            out = dp.render_board(board, use_emoji=False)
+            out.encode("cp1252")  # must not raise
+            self.assertIn("[%s]" % dp.LIGHT[level], out)
+
+
 if __name__ == "__main__":
     unittest.main()

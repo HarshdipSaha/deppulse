@@ -1,83 +1,85 @@
 # DepPulse — capture & publish guide (your last mile)
 
 The engine is built, tested, and proven live. What's left are the steps that **require your
-Modiqo account + an interactive OAuth login + the real `rote` binary** — an agent session
-can't do these for you. Budget ~15–20 minutes.
+Modiqo account + an interactive OAuth login + the real `rote`/`play` tooling** — an agent
+session can't do these for you. Budget ~15–20 minutes.
 
-> ⚠️ The `rote …` command flags below are **inferred** from Modiqo's docs (the GitHub repo was
-> unreachable when this was written). After you install, run `rote how` and reconcile the exact
-> flags. The *logic, ordering, and `@unit` boundaries* are what matter and are already correct —
-> the DepPulse Python engine (`deppulse.py`) is the source of truth for behavior; `rote` just
-> captures a run of it.
+> ✅ Corrected 2026-09-03 against the real `modiqo/rote-releases` README and the official
+> hackathon setup guide (modiqo.ai/blog/the-playoffs). The previous version of this file guessed
+> at `rote proc`/`rote probe`/`rote extract`/`rote play publish` because GitHub was unreachable
+> when it was written — **those commands don't exist.** The real mechanism is conversational:
+> you don't wrap each step in a `rote` verb, you drive a natural-language `/play` session and
+> Play observes what your agent does.
 
 ## 0. Prerequisites (do this first)
 - Python 3.8+ on PATH (`python --version`).
 - This `deppulse/` folder.
-- A Modiqo/rote account for the registry you'll publish to.
+- A Modiqo account (Google or GitHub sign-in — this is your public "jersey"/handle).
 
-## 1. Install rote & sign in (interactive — only you can do this)
+## 1. Install rote & complete the six-step warmup (interactive — only you can do this)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/modiqo/rote-releases/main/install.sh | sh
-rote how                       # confirm install; see the ~12 core commands
-# complete the registry login / OAuth when prompted, and connect your agent harness
+curl -fsSL https://raw.githubusercontent.com/modiqo/rote-releases/main/install.sh | bash
+# or the hackathon-pinned entrypoint:
+curl -fsSL https://getrote.dev/playoffs/install.sh | sh
+rote setup          # one command: registry login, adapter picks, agent wiring (<60s)
 ```
+Then, per the official warmup checklist:
+1. Confirm install: Play installed, harness detected, ready to sign in.
+2. In Claude Code, type `/play what's new` to confirm the harness is wired (Codex/Cursor use `$play what's new`).
+3. Sign in (Google or GitHub) to claim your public handle.
+4. Run `/play what's new` again to browse public Plays.
+5. Run `/play run hello` — a public-data, no-credential sample Play — to see a run end to end.
+6. Do one throwaway practice Play on any small repetitive task, just to feel the flow (choose **Skip** at the storage prompt so it doesn't pollute your submission).
 
-## 2. Smoke-test the four adapters (5 min, avoids surprises mid-capture)
+## 2. Capture DepPulse as your real Play
+There is no per-subcommand wrapping. Inside Claude Code, in this `deppulse/` folder, say:
+```
+/play run the DepPulse dependency-status check on this repo, scanning manifests,
+mapping dependencies to status-page providers, probing each provider's status, and
+printing the worst-first board
+```
+Then actually guide the agent through a real run — e.g. have it execute:
 ```bash
-rote proc   -- python deppulse.py scan --dir fixtures/node-app     # shell adapter
-rote probe  GET https://status.npmjs.org/api/v2/summary.json       # API adapter
-rote browse open https://health.aws.amazon.com/health/status       # browser adapter (read-only)
-rote extract -- python -c "print('ok')"                            # compose adapter
+python deppulse.py run --dir .
 ```
-Each should capture an indexed `@unit` with request/response/timing.
+(or the four discrete subcommands `scan` → `map` → `probe` → `compose` if you want the
+capture to show more inspectable steps — `deppulse.py`'s subcommands already mirror this).
+Play watches the tool calls made during the session and turns the proven run into a
+reusable, versioned Play. Correct the agent if it does anything extraneous — only the
+real, useful path should get captured.
 
-## 3. Capture DepPulse as a Play (RUN → TRACE → PLAY)
-Run the guided pipeline **in order** so rote records each step as a `@unit`. This mirrors
-`deppulse.py`'s subcommands exactly:
+When Play judges the run reusable, it prompts **Team / Community / Skip**. Choose
+**Community** — that prompt *is* the submission.
 
+## 3. Prove it (the trust assets judges reward)
 ```bash
-# @u1  scan (proc)
-rote proc --name scan-manifests -- python deppulse.py scan --dir .            > u1.json
-# @u2  map (extract)
-rote extract --name map-providers -- python deppulse.py map --in u1.json      > u2.json
-# @u3  probe (probe, fan-out, credential-free)
-rote probe --name status-summary -- python deppulse.py probe --in u2.json     > u3.json
-# @u_board  compose (extract)
-rote extract --name compose-board -- python deppulse.py compose --map u2.json --status u3.json --format board
+rote trace                 # Terminal Gantt chart of what the captured Play actually did
+rote trace --html report.html   # shareable HTML version
 ```
-> Simplest alternative: capture a single `rote proc --name deppulse -- python deppulse.py run --dir .`
-> if you'd rather ship one `@unit`. The four-step version above is more inspectable and shows off
-> all four adapters — preferred for judging.
+Run `rote how` and `rote guidance` after install to see if `doctor`/`replay`-equivalent
+risk/determinism reports exist under different names in your installed version — reconcile
+before relying on them; they weren't confirmed in the current public docs.
 
-## 4. Prove it (the trust assets judges reward)
-```bash
-rote trace     # inspect captured @units (request/response/timing/deps)
-rote replay    # determinism: re-run from captured fixtures -> byte-identical board
-rote doctor    # risk report — EXPECT: no creds, no writes, cwd-only reads, pinned-network flag only
-```
-Screenshot the clean `rote doctor` output — it's your strongest trust signal.
-
-Local determinism proof you can show without rote:
+Local determinism proof you can show without rote regardless:
 ```bash
 python -m unittest discover -s tests -v                            # 17 tests, all green
 ```
 
-## 5. Publish = submit
-```bash
-rote play publish        # at the Team / Community / Skip prompt -> choose COMMUNITY
-```
-There is no separate form. The public link (e.g. `play.modiqo.ai/<you>/deppulse`) **is** your entry.
-Then verify from a clean/incognito machine — pull and run it exactly as a stranger would.
+## 4. Publish = submit
+Choosing **Community** in step 2 *is* publishing — there's no separate `rote play publish`
+command and no separate form. The public link (e.g. `play.modiqo.ai/<you>/deppulse`) **is**
+your entry. Then verify from a clean/incognito machine, or ask someone else to pull it —
+run it exactly as a stranger would.
 
-## 6. Social + adoption (Apple Watch prize + the adoption judging axis)
+## 5. Social + adoption (Apple Watch prize + the adoption judging axis)
 - Post the sample board + link on **X and LinkedIn, tagging Modiqo**; cross-post in the WeMakeDevs Discord.
 - Ask 3–5 other participants to run it in **their** repos (each stack → a different provider set, so it's instantly relevant). Each independent pull is a scored adoption signal.
 - Invite provider-table PRs — contributors become long-term users.
 
 ## If you hit trouble
-- `rote` flag mismatch → run `rote how`, adjust the wrappers in step 3 (behavior lives in `deppulse.py`, so only the outer `rote …` invocation changes).
+- `/play` behaves unexpectedly → run `rote how` / `rote guidance agent essential` to reconcile against the installed version (behavior lives in `deppulse.py`, so only how you narrate the `/play` session changes).
 - A status endpoint moved → edit `adapters/dep-providers.table.json` + `adapters/status-allowlist.txt` (keep them in sync) and re-run `python -m unittest`.
-- Paste me the `rote how` output and I'll rewrite step 3 to the exact real flags.
+- Paste me the `rote how` output and I'll refine step 2's phrasing to whatever the installed CLI actually expects.
 
 ## Descope safety (if time runs short — see docs/rote-playoffs/03-implementation-plan.md)
 The JSON path (`scan → map → probe → compose`) is the non-negotiable ship-minimum and is **already
