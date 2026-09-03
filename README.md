@@ -86,6 +86,8 @@ The optional browse leg reads the few pages without a JSON feed, like AWS and St
 
 ## Coverage and extending
 
+Try here: https://play.modiqo.ai/deppulse/deppulse@0.0.1
+
 The provider table currently covers 11 JSON-feed providers, including GitHub, npm, PyPI, Docker Hub, OpenAI, Anthropic, Cloudflare, Vercel, Netlify, Twilio, and Datadog. It also covers 2 manual-leg providers in AWS and Stripe. 
 
 Every JSON endpoint was verified to return 200 status codes on August 24, 2026. Adding a provider is a one-entry pull request to `adapters/dep-providers.table.json`. Coverage grows as people use it.
