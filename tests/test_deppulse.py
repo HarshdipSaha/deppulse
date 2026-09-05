@@ -63,12 +63,10 @@ class TestMap(unittest.TestCase):
     def test_node_matches(self):
         mp = dp.cmd_map(dp.cmd_scan(os.path.join(FIXTURES, "node-app")), TABLE)
         checked = {e["id"] for e in mp["matched"]}
-        manual = {e["id"] for e in mp["manual"]}
-        # JSON-leg providers we can check live:
-        for pid in ("npm", "openai", "cloudflare", "github", "dockerhub"):
+        # Every provider this repo touches is checkable live as of table v2.
+        # Stripe used to be a browser-leg stub; it now has its own JSON parser.
+        for pid in ("npm", "openai", "cloudflare", "github", "dockerhub", "stripe"):
             self.assertIn(pid, checked, pid)
-        # Stripe is a browser/manual-leg provider (no Statuspage summary.json):
-        self.assertIn("stripe", manual)
 
     def test_reason_is_traceable(self):
         mp = dp.cmd_map(dp.cmd_scan(os.path.join(FIXTURES, "node-app")), TABLE)
@@ -88,12 +86,21 @@ class TestMap(unittest.TestCase):
         ids = {e["id"] for e in mp["matched"]} | {e["id"] for e in mp["manual"]}
         self.assertTrue(ids.issubset({"npm", "openai"}))
 
-    def test_browser_flag_moves_leg(self):
+    def test_stripe_and_aws_are_probed_not_manual(self):
+        """Table v2 promoted both off the browser stub, so they must land in
+        'matched' with a parser attached, and nothing may sit in 'manual'."""
         scan = dp.cmd_scan(os.path.join(FIXTURES, "node-app"))
-        off = dp.cmd_map(scan, TABLE, use_browser=False)
-        on = dp.cmd_map(scan, TABLE, use_browser=True)
-        self.assertIn("stripe", {e["id"] for e in off["manual"]})
-        self.assertIn("stripe", {e["id"] for e in on["matched"]})
+        mp = dp.cmd_map(scan, TABLE)
+        by_id = {e["id"]: e for e in mp["matched"]}
+        self.assertIn("stripe", by_id)
+        self.assertEqual(by_id["stripe"]["parser"], "stripe_current")
+        self.assertEqual(mp["manual"], [])
+        self.assertEqual(mp["counts"]["no_status_page"], 0)
+
+    def test_every_provider_has_a_probeable_leg(self):
+        for provider in TABLE["providers"]:
+            self.assertEqual(provider["leg"], "json", provider["id"])
+            self.assertTrue(provider["summary_json_url"], provider["id"])
 
 
 class TestSummarize(unittest.TestCase):
@@ -171,6 +178,101 @@ class TestComposeAndDeterminism(unittest.TestCase):
         board = dp.build_board(mapped, probed)
         self.assertEqual(board["verdict"]["level"], "operational")
         self.assertIn("all systems green", board["verdict"]["text"])
+
+
+class TestDockerfileFrom(unittest.TestCase):
+    """Real Dockerfiles (cal.com's, for one) put flags and stage aliases on FROM."""
+
+    def test_platform_flag_is_not_the_image(self):
+        imgs = dp._docker_images_from_dockerfile(
+            "FROM --platform=$BUILDPLATFORM node:20-alpine AS builder\nRUN echo hi\n")
+        self.assertEqual(imgs, ["node:20-alpine"])
+
+    def test_stage_alias_is_not_treated_as_an_image(self):
+        imgs = dp._docker_images_from_dockerfile(
+            "FROM node:20 AS builder\nFROM builder\nFROM python:3.12-slim\n")
+        self.assertEqual(imgs, ["node:20", "python:3.12-slim"])
+
+    def test_scratch_and_args_still_skipped(self):
+        imgs = dp._docker_images_from_dockerfile("FROM scratch\nFROM $BASE\nFROM redis:7\n")
+        self.assertEqual(imgs, ["redis:7"])
+
+
+class TestStripeParser(unittest.TestCase):
+    def test_all_up(self):
+        sev, detail, incs = dp.summarize_stripe_current(
+            {"statuses": {"api": "up", "checkout": "up"}, "largestatus": "up",
+             "message": "All services are online."})
+        self.assertEqual(sev, "operational")
+        self.assertEqual(detail, "All services are online.")
+        self.assertEqual(incs, [])
+
+    def test_one_service_degraded_is_named(self):
+        sev, detail, incs = dp.summarize_stripe_current(
+            {"statuses": {"api": "degraded", "checkout": "up"}, "largestatus": "up",
+             "message": "All services are online."})
+        self.assertEqual(sev, "degraded")
+        self.assertIn("api", detail)
+        self.assertTrue(incs)
+
+    def test_overall_outage_wins(self):
+        sev, _, _ = dp.summarize_stripe_current(
+            {"statuses": {"api": "up"}, "largestatus": "down"})
+        self.assertEqual(sev, "major_outage")
+
+    def test_garbage_payload_is_unknown_not_a_crash(self):
+        sev, _, _ = dp.summarize_stripe_current(["not", "a", "dict"])
+        self.assertEqual(sev, "unknown")
+
+
+class TestAwsParser(unittest.TestCase):
+    def test_no_events_is_green(self):
+        sev, detail, incs = dp.summarize_aws_currentevents([])
+        self.assertEqual(sev, "operational")
+        self.assertEqual(detail, "no active events")
+        self.assertEqual(incs, [])
+
+    def test_region_travels_with_the_detail(self):
+        """A regional AWS event is not the reader's event unless they deploy
+        there, so the region must be visible in the row."""
+        sev, detail, incs = dp.summarize_aws_currentevents([
+            {"summary": "Increased Error Rates", "service_name": "Multiple services",
+             "region_name": "UAE"}])
+        self.assertEqual(sev, "degraded")
+        self.assertIn("UAE", detail)
+        self.assertIn("Multiple services", detail)
+        self.assertEqual(len(incs), 1)
+
+    def test_disruption_outranks_error_rates(self):
+        sev, _, incs = dp.summarize_aws_currentevents([
+            {"summary": "Increased Error Rates", "region_name": "Ohio"},
+            {"summary": "Service disruption", "region_name": "Tokyo"}])
+        self.assertEqual(sev, "partial_outage")
+        self.assertEqual(len(incs), 2)
+
+    def test_unrecognised_active_event_stays_degraded(self):
+        sev, _, _ = dp.summarize_aws_currentevents([{"summary": "Something odd"}])
+        self.assertEqual(sev, "degraded")
+
+    def test_garbage_payload_is_unknown_not_a_crash(self):
+        sev, _, _ = dp.summarize_aws_currentevents({"not": "a list"})
+        self.assertEqual(sev, "unknown")
+
+
+class TestDecode(unittest.TestCase):
+    """AWS serves UTF-16 with a BOM; everyone else serves UTF-8."""
+
+    def test_utf16_be_bom(self):
+        self.assertEqual(dp._decode(u'[{"a":1}]'.encode("utf-16-be", ) and b"\xfe\xff" + u'[]'.encode("utf-16-be")), "[]")
+
+    def test_utf16_le_bom(self):
+        self.assertEqual(dp._decode(b"\xff\xfe" + u'[]'.encode("utf-16-le")), "[]")
+
+    def test_utf8_bom_is_stripped(self):
+        self.assertEqual(dp._decode(b"\xef\xbb\xbf" + b'{"a":1}'), '{"a":1}')
+
+    def test_plain_utf8(self):
+        self.assertEqual(dp._decode(b'{"a":1}'), '{"a":1}')
 
 
 class TestEncodingFallback(unittest.TestCase):

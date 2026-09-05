@@ -64,9 +64,6 @@ Also ping your own endpoint, so you can see if the provider is green but your ap
 `--providers github,npm` 
 Check exactly these providers instead of auto-detecting them.
 
-`--browser` 
-Enable the best-effort read of JSON-less pages like AWS Health or Stripe. This is off by default.
-
 `--format json` 
 Produce a machine-readable board to pipe into your agent or CI.
 
@@ -82,13 +79,15 @@ Second, it maps. It matches those dependencies to providers via the pinned table
 Third, it probes. It executes a credential-free GET request against each provider's public `summary.json`. 
 Finally, it composes. It merges everything into a worst-first board with a single unified verdict.
 
-The optional browse leg reads the few pages without a JSON feed, like AWS and Stripe. It is off by default, ensuring the reliable JSON path always carries the run.
+Every provider goes through that same JSON path. AWS and Stripe used to be the exceptions, listed as "check manually" because they do not publish an Atlassian Statuspage feed. They publish their own JSON instead, so table v2 gives each one a dedicated parser: `status.stripe.com/current` for Stripe, and `health.aws.amazon.com/public/currentevents` for AWS. There is no browser leg and no scraping.
+
+AWS events are regional, so the region is printed with the event. An "Increased Error Rates" event in UAE is not your problem if you deploy in us-east-1, and the board says so rather than making you guess.
 
 ## Coverage and extending
 
 Try here: https://play.modiqo.ai/deppulse/deppulse@0.0.1
 
-The provider table currently covers 11 JSON-feed providers, including GitHub, npm, PyPI, Docker Hub, OpenAI, Anthropic, Cloudflare, Vercel, Netlify, Twilio, and Datadog. It also covers 2 manual-leg providers in AWS and Stripe. 
+The provider table covers 13 providers, all of them checked live: GitHub, npm, PyPI, Docker Hub, OpenAI, Anthropic, Cloudflare, Vercel, Netlify, Twilio, Datadog, Stripe, and AWS. Nothing is left as "check manually". 
 
 Every JSON endpoint was verified to return 200 status codes on August 24, 2026. Adding a provider is a one-entry pull request to `adapters/dep-providers.table.json`. Coverage grows as people use it.
 

@@ -182,10 +182,28 @@ def _go_names_from_gomod(text):
 
 
 def _docker_images_from_dockerfile(text):
+    """FROM can carry flags before the image (`FROM --platform=$BUILDPLATFORM node:20
+    AS build`), and a later stage can reference an earlier stage by name rather than
+    an image. Skip both, or the provenance line ends up citing a flag."""
     images = []
-    for m in re.finditer(r"^\s*FROM\s+(\S+)", text, flags=re.M | re.I):
-        img = m.group(1)
-        if img.lower() == "scratch" or img.startswith("$"):
+    stages = set()
+    for m in re.finditer(r"^\s*FROM\s+(.+)$", text, flags=re.M | re.I):
+        parts = m.group(1).split()
+        img = None
+        for i, token in enumerate(parts):
+            if token.startswith("--"):
+                continue
+            if token.upper() == "AS":
+                break
+            img = token
+            # anything after the image is `AS <stage>`; record the alias so a
+            # later `FROM <stage>` is not mistaken for a registry image
+            if len(parts) > i + 2 and parts[i + 1].upper() == "AS":
+                stages.add(parts[i + 2].lower())
+            break
+        if not img:
+            continue
+        if img.lower() == "scratch" or img.startswith("$") or img.lower() in stages:
             continue
         images.append(img)
     return images
@@ -328,7 +346,7 @@ def _match_provider(provider, scan):
     return None
 
 
-def cmd_map(scan, table, providers_filter=None, use_browser=False):
+def cmd_map(scan, table, providers_filter=None):
     allow = None
     if providers_filter:
         allow = {p.strip().lower() for p in providers_filter.split(",") if p.strip()}
@@ -349,10 +367,11 @@ def cmd_map(scan, table, providers_filter=None, use_browser=False):
             "summary_json_url": provider.get("summary_json_url"),
             "status_url": provider["status_url"],
             "reason": reason,
+            "parser": provider.get("parser"),
         }
+        # Only a leg we can actually probe counts as checked. Anything else is
+        # listed as a manual link so the coverage line never overstates itself.
         if provider["leg"] == "json":
-            checked.append(entry)
-        elif provider["leg"] == "browser" and use_browser:
             checked.append(entry)
         else:
             manual.append(entry)
@@ -425,11 +444,108 @@ def summarize_summary_json(summary):
     return severity, detail, incident_titles
 
 
+STRIPE_SEV = {
+    "up": "operational",
+    "degraded": "degraded",
+    "degraded_performance": "degraded",
+    "partial": "partial_outage",
+    "partial_outage": "partial_outage",
+    "down": "major_outage",
+    "outage": "major_outage",
+    "maintenance": "maintenance",
+}
+
+# AWS says what happened in prose, not in a documented severity enum, so the
+# summary text is the signal. Anything active but unrecognised stays 'degraded':
+# it is honest about "something is up" without claiming an outage nobody has.
+AWS_SEV_KEYWORDS = [
+    ("operating normally", "operational"),
+    ("resolved", "operational"),
+    ("informational", "operational"),
+    ("service disruption", "partial_outage"),
+    ("unavailable", "partial_outage"),
+    ("outage", "partial_outage"),
+    ("increased error rates", "degraded"),
+    ("elevated error", "degraded"),
+    ("degradation", "degraded"),
+    ("degraded", "degraded"),
+    ("performance", "degraded"),
+    ("latency", "degraded"),
+    ("maintenance", "maintenance"),
+]
+
+
+def summarize_stripe_current(doc):
+    """status.stripe.com/current is Stripe's own shape, not Statuspage v2:
+    {"statuses": {"api": "up", ...}, "largestatus": "up", "message": "..."}"""
+    if not isinstance(doc, dict):
+        return "unknown", "unexpected payload", []
+    overall = str(doc.get("largestatus") or "").strip().lower()
+    severity = STRIPE_SEV.get(overall, "unknown" if overall else "operational")
+
+    hurt = []
+    for name, state in sorted((doc.get("statuses") or {}).items()):
+        sev = STRIPE_SEV.get(str(state).strip().lower(), "operational")
+        if sev != "operational":
+            hurt.append(name)
+        severity = worst(severity, sev)
+
+    if hurt:
+        detail = "degraded: " + ", ".join(hurt[:3])
+    else:
+        detail = str(doc.get("message") or "").strip()
+    return severity, detail, ([detail] if hurt else [])
+
+
+def summarize_aws_currentevents(doc):
+    """health.aws.amazon.com/public/currentevents is a flat list of live events.
+    Events are REGIONAL, so the region travels with the detail text: an incident
+    in eu-south-2 is not the reader's incident unless they deploy there."""
+    if not isinstance(doc, list):
+        return "unknown", "unexpected payload", []
+    if not doc:
+        return "operational", "no active events", []
+
+    severity = "operational"
+    titles = []
+    for event in doc:
+        if not isinstance(event, dict):
+            continue
+        summary = str(event.get("summary") or "").strip()
+        sev = "degraded"
+        low = summary.lower()
+        for needle, mapped in AWS_SEV_KEYWORDS:
+            if needle in low:
+                sev = mapped
+                break
+        severity = worst(severity, sev)
+        where = " / ".join(x for x in (event.get("service_name"), event.get("region_name")) if x)
+        titles.append("%s (%s)" % (summary or "active event", where) if where else (summary or "active event"))
+
+    return severity, (titles[0] if titles else ""), titles
+
+
+PARSERS = {
+    "stripe_current": summarize_stripe_current,
+    "aws_currentevents": summarize_aws_currentevents,
+}
+
+
+def _decode(raw):
+    """AWS serves UTF-16 with a BOM; the Statuspage feeds are UTF-8. Sniff, so a
+    byte-order mark never turns into mojibake and then a JSON parse error."""
+    if raw[:2] in (b"\xfe\xff", b"\xff\xfe"):
+        return raw.decode("utf-16", errors="replace")
+    if raw[:3] == b"\xef\xbb\xbf":
+        return raw[3:].decode("utf-8", errors="replace")
+    return raw.decode("utf-8", errors="replace")
+
+
 def _fetch(url, timeout):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read()
-    return json.loads(raw.decode("utf-8", errors="replace"))
+    return json.loads(_decode(raw))
 
 
 def probe_one(entry, timeout, retries, allow_hosts):
@@ -451,7 +567,8 @@ def probe_one(entry, timeout, retries, allow_hosts):
         try:
             t0 = time.time()
             summary = _fetch(url, timeout)
-            severity, detail, incidents = summarize_summary_json(summary)
+            parse = PARSERS.get(entry.get("parser") or "", summarize_summary_json)
+            severity, detail, incidents = parse(summary)
             result.update(
                 severity=severity,
                 detail=detail,
@@ -469,22 +586,12 @@ def probe_one(entry, timeout, retries, allow_hosts):
 
 def cmd_probe(mapped, timeout, retries, allow_hosts, max_workers=8):
     entries = [e for e in mapped.get("matched", []) if e.get("leg") == "json"]
-    browser_entries = [e for e in mapped.get("matched", []) if e.get("leg") == "browser"]
     results = []
     if entries:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             futs = {pool.submit(probe_one, e, timeout, retries, allow_hosts): e for e in entries}
             for fut in concurrent.futures.as_completed(futs):
                 results.append(fut.result())
-    # Browser-leg providers with --browser on are best-effort; without a headless
-    # browser dependency here we mark them 'unknown' with a manual link so replay
-    # never breaks. (The rote Play uses the browse adapter for a coarse read.)
-    for e in browser_entries:
-        results.append({
-            "id": e["id"], "name": e["name"], "status_url": e["status_url"],
-            "reason": e["reason"], "leg": "browser",
-            "severity": "unknown", "detail": "browser leg (best-effort) — check manually", "incidents": [],
-        })
     results.sort(key=lambda r: r["id"])
     return {"statuses": results}
 
@@ -625,7 +732,6 @@ def main(argv=None):
     mp.add_argument("--in", dest="infile", default="-")
     mp.add_argument("--table", default=DEFAULT_TABLE)
     mp.add_argument("--providers", default=None)
-    mp.add_argument("--browser", action="store_true")
 
     pp = sub.add_parser("probe", help="GET each provider's summary.json (rote probe)")
     pp.add_argument("--in", dest="infile", default="-")
@@ -646,7 +752,6 @@ def main(argv=None):
     rp.add_argument("--allowlist", default=DEFAULT_ALLOWLIST)
     rp.add_argument("--providers", default=None)
     rp.add_argument("--url", default=None, help="also liveness-check YOUR endpoint")
-    rp.add_argument("--browser", action="store_true", help="enable best-effort browser leg (off by default)")
     rp.add_argument("--timeout", type=float, default=8.0)
     rp.add_argument("--retries", type=int, default=2)
     rp.add_argument("--format", choices=["board", "json"], default="board")
@@ -661,7 +766,7 @@ def main(argv=None):
     if args.cmd == "map":
         scan = read_input(args.infile)
         table = _load_table(args.table)
-        print(json.dumps(cmd_map(scan, table, args.providers, args.browser), indent=2))
+        print(json.dumps(cmd_map(scan, table, args.providers), indent=2))
         return 0
 
     if args.cmd == "probe":
@@ -684,7 +789,7 @@ def main(argv=None):
     if args.cmd == "run":
         scan = cmd_scan(args.dir)
         table = _load_table(args.table)
-        mapped = cmd_map(scan, table, args.providers, args.browser)
+        mapped = cmd_map(scan, table, args.providers)
         allow = load_allowlist(args.allowlist)
         probed = cmd_probe(mapped, args.timeout, args.retries, allow)
         self_status = probe_self(args.url, args.timeout) if args.url else None

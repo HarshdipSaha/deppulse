@@ -1,6 +1,6 @@
 {
-  "version": "v1",
-  "description": "Pinned, inspectable provider -> status-page table for DepPulse. Every summary_json_url was verified to return HTTP 200 application/json on 2026-08-24. Audit this file before you run the Play: it is the complete list of hosts DepPulse will contact and why each maps to your dependencies.",
+  "version": "v2",
+  "description": "Pinned, inspectable provider -> status-page table for DepPulse. Every summary_json_url was verified to return HTTP 200 application/json on 2026-08-24. Audit this file before you run the Play: it is the complete list of hosts DepPulse will contact and why each maps to your dependencies. v2: AWS and Stripe promoted from browser-leg stubs to real JSON legs with dedicated parsers.",
   "providers": [
     {
       "id": "github",
@@ -9,9 +9,16 @@
       "summary_json_url": "https://www.githubstatus.com/api/v2/summary.json",
       "status_url": "https://www.githubstatus.com",
       "match": {
-        "deps": ["octokit", "@octokit/*", "probot", "@actions/*"],
+        "deps": [
+          "octokit",
+          "@octokit/*",
+          "probot",
+          "@actions/*"
+        ],
         "ecosystems": [],
-        "context": ["github_actions"]
+        "context": [
+          "github_actions"
+        ]
       }
     },
     {
@@ -20,7 +27,13 @@
       "leg": "json",
       "summary_json_url": "https://status.npmjs.org/api/v2/summary.json",
       "status_url": "https://status.npmjs.org",
-      "match": { "deps": [], "ecosystems": ["npm"], "context": [] }
+      "match": {
+        "deps": [],
+        "ecosystems": [
+          "npm"
+        ],
+        "context": []
+      }
     },
     {
       "id": "pypi",
@@ -28,7 +41,13 @@
       "leg": "json",
       "summary_json_url": "https://status.python.org/api/v2/summary.json",
       "status_url": "https://status.python.org",
-      "match": { "deps": [], "ecosystems": ["pypi"], "context": [] }
+      "match": {
+        "deps": [],
+        "ecosystems": [
+          "pypi"
+        ],
+        "context": []
+      }
     },
     {
       "id": "dockerhub",
@@ -36,7 +55,13 @@
       "leg": "json",
       "summary_json_url": "https://www.dockerstatus.com/api/v2/summary.json",
       "status_url": "https://www.dockerstatus.com",
-      "match": { "deps": [], "ecosystems": [], "context": ["dockerhub_image"] }
+      "match": {
+        "deps": [],
+        "ecosystems": [],
+        "context": [
+          "dockerhub_image"
+        ]
+      }
     },
     {
       "id": "openai",
@@ -45,7 +70,13 @@
       "summary_json_url": "https://status.openai.com/api/v2/summary.json",
       "status_url": "https://status.openai.com",
       "match": {
-        "deps": ["openai", "openai-*", "@openai/*", "langchain-openai", "tiktoken"],
+        "deps": [
+          "openai",
+          "openai-*",
+          "@openai/*",
+          "langchain-openai",
+          "tiktoken"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -57,7 +88,11 @@
       "summary_json_url": "https://status.claude.com/api/v2/summary.json",
       "status_url": "https://status.anthropic.com",
       "match": {
-        "deps": ["anthropic", "@anthropic-ai/*", "langchain-anthropic"],
+        "deps": [
+          "anthropic",
+          "@anthropic-ai/*",
+          "langchain-anthropic"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -69,7 +104,12 @@
       "summary_json_url": "https://www.cloudflarestatus.com/api/v2/summary.json",
       "status_url": "https://www.cloudflarestatus.com",
       "match": {
-        "deps": ["wrangler", "@cloudflare/*", "cloudflare", "miniflare"],
+        "deps": [
+          "wrangler",
+          "@cloudflare/*",
+          "cloudflare",
+          "miniflare"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -81,7 +121,10 @@
       "summary_json_url": "https://www.vercel-status.com/api/v2/summary.json",
       "status_url": "https://www.vercel-status.com",
       "match": {
-        "deps": ["vercel", "@vercel/*"],
+        "deps": [
+          "vercel",
+          "@vercel/*"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -93,7 +136,11 @@
       "summary_json_url": "https://www.netlifystatus.com/api/v2/summary.json",
       "status_url": "https://www.netlifystatus.com",
       "match": {
-        "deps": ["netlify", "netlify-cli", "@netlify/*"],
+        "deps": [
+          "netlify",
+          "netlify-cli",
+          "@netlify/*"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -105,7 +152,10 @@
       "summary_json_url": "https://status.twilio.com/api/v2/summary.json",
       "status_url": "https://status.twilio.com",
       "match": {
-        "deps": ["twilio", "@twilio/*"],
+        "deps": [
+          "twilio",
+          "@twilio/*"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -117,7 +167,13 @@
       "summary_json_url": "https://status.datadoghq.com/api/v2/summary.json",
       "status_url": "https://status.datadoghq.com",
       "match": {
-        "deps": ["dd-trace", "ddtrace", "datadog", "@datadog/*", "datadog-api-client"],
+        "deps": [
+          "dd-trace",
+          "ddtrace",
+          "datadog",
+          "@datadog/*",
+          "datadog-api-client"
+        ],
         "ecosystems": [],
         "context": []
       }
@@ -125,26 +181,40 @@
     {
       "id": "aws",
       "name": "AWS Health",
-      "leg": "browser",
-      "summary_json_url": null,
+      "leg": "json",
+      "summary_json_url": "https://health.aws.amazon.com/public/currentevents",
       "status_url": "https://health.aws.amazon.com/health/status",
       "match": {
-        "deps": ["boto3", "botocore", "aws-sdk", "@aws-sdk/*", "aws-cdk", "aws-cdk-lib", "aws-amplify", "@aws-amplify/*"],
+        "deps": [
+          "boto3",
+          "botocore",
+          "aws-sdk",
+          "@aws-sdk/*",
+          "aws-cdk",
+          "aws-cdk-lib",
+          "aws-amplify",
+          "@aws-amplify/*"
+        ],
         "ecosystems": [],
         "context": []
-      }
+      },
+      "parser": "aws_currentevents"
     },
     {
       "id": "stripe",
       "name": "Stripe",
-      "leg": "browser",
-      "summary_json_url": null,
+      "leg": "json",
+      "summary_json_url": "https://status.stripe.com/current",
       "status_url": "https://status.stripe.com",
       "match": {
-        "deps": ["stripe", "@stripe/*"],
+        "deps": [
+          "stripe",
+          "@stripe/*"
+        ],
         "ecosystems": [],
         "context": []
-      }
+      },
+      "parser": "stripe_current"
     }
   ]
 }
