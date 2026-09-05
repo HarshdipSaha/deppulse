@@ -85,7 +85,7 @@ AWS events are regional, so the region is printed with the event. An "Increased 
 
 ## Coverage and extending
 
-Try here: https://play.modiqo.ai/deppulse/deppulse@0.0.1
+Try here: https://play.modiqo.ai/deppulse/deppulse
 
 The provider table covers 13 providers, all of them checked live: GitHub, npm, PyPI, Docker Hub, OpenAI, Anthropic, Cloudflare, Vercel, Netlify, Twilio, Datadog, Stripe, and AWS. Nothing is left as "check manually". 
 
