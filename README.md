@@ -5,28 +5,29 @@ When your build breaks or your app throws a 500 error, run this before you debug
 DepPulse tells you in one command whether an upstream provider your repository actually depends on is having an incident right now. You don't have to open eight status pages by hand.
 
 ```text
-$ python deppulse.py run --dir .
+$ python deppulse.py run --dir . --no-emoji
 
-DepPulse: is it me, or is a provider down?
-1 provider(s) degraded
+DepPulse - is it me, or is a provider down?
+[Y] 1 provider(s) degraded
 
-Cloudflare    partial outage   "degraded: Baghdad (BGW), ..."
+[O] Cloudflare    partial outage   "Incorrect geo location for some Cloudflare WARP users"
       https://www.cloudflarestatus.com  <- included because: wrangler (package.json)
-Docker Hub    operational
+[G] Docker Hub    operational
       https://www.dockerstatus.com  <- included because: node:20-alpine (Dockerfile)
-GitHub        operational
+[G] GitHub        operational
       https://www.githubstatus.com  <- included because: @octokit/rest (package.json)
-npm Registry  operational
+[G] npm Registry  operational
       https://status.npmjs.org  <- included because: package.json
-OpenAI        operational
+[G] OpenAI        operational
       https://status.openai.com  <- included because: openai (package.json)
+[G] Stripe        operational
+      https://status.stripe.com  <- included because: stripe (package.json)
 
-no JSON status page (check manually):
-  Stripe        https://status.stripe.com  <- included because: stripe (package.json)
-
-Coverage: checked 5 of 6 detected providers; 1 had no JSON status page.
-Scanned 3 manifest file(s), 6 dependencies. Table v1.
+Coverage: checked 6 of 6 detected providers; 0 had no JSON status page.
+Scanned 3 manifest file(s), 6 dependencies. Table v2.
 ```
+
+That is a real run against `fixtures/node-app` on September 5, 2026, not a mock. Exit code 0 means every checked provider is green; exit code 1 means at least one is in a problem state, so it drops straight into a CI step.
 
 ## Run it in 30 seconds
 
@@ -36,11 +37,12 @@ cd <any repo with a lockfile>        # package.json / requirements.txt / go.mod 
 python /path/to/deppulse.py run --dir .
 ```
 
-As a rote Play:
+As a rote Play (needs the [rote CLI](https://play.modiqo.ai), Linux/macOS/WSL):
 ```bash
-rote registry adapter pull deppulse
-rote play run deppulse
+rote play run https://play.modiqo.ai/deppulse/deppulse dir=/absolute/path/to/your/repo
 ```
+
+`dir` is required. Play steps run in their own workspace, not your shell's current directory, so pass the real path to the repo you want checked (`dir=$(pwd)` from inside it works).
 
 It requires no login, no API key, and no configuration. It works on the very first run.
 
@@ -89,7 +91,7 @@ Try here: https://play.modiqo.ai/deppulse/deppulse
 
 The provider table covers 13 providers, all of them checked live: GitHub, npm, PyPI, Docker Hub, OpenAI, Anthropic, Cloudflare, Vercel, Netlify, Twilio, Datadog, Stripe, and AWS. Nothing is left as "check manually". 
 
-Every JSON endpoint was verified to return 200 status codes on August 24, 2026. Adding a provider is a one-entry pull request to `adapters/dep-providers.table.json`. Coverage grows as people use it.
+All 13 endpoints were verified live on September 5, 2026, including the two non-Statuspage feeds (AWS, Stripe). Adding a provider is a one-entry pull request to `adapters/dep-providers.table.json`. Coverage grows as people use it.
 
 ## Trust surface at a glance
 
