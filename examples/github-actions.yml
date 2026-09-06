@@ -1,0 +1,25 @@
+# Copy this into .github/workflows/deppulse.yml in your own repo.
+#
+# Runs before your real CI steps and answers one question up front: if
+# something's about to fail, is that your code, or a dependency having a
+# bad day? `continue-on-error: true` means this step never blocks your
+# build -- a real provider outage still shows as a warning triangle in the
+# Actions log, not a red X, so it's visible without being a false gate.
+name: DepPulse preflight
+
+on: [push, pull_request]
+
+jobs:
+  deppulse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if a dependency provider is down
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/HarshdipSaha/deppulse.git /tmp/deppulse
+          python3 /tmp/deppulse/deppulse.py run --dir "$GITHUB_WORKSPACE" --no-emoji
+
+      # Your real build/test steps follow, unaffected either way:
+      # - run: npm ci && npm test
