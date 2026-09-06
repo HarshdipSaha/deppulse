@@ -373,6 +373,7 @@ def cmd_map(scan, table, providers_filter=None):
             "status_url": provider["status_url"],
             "reason": reason,
             "parser": provider.get("parser"),
+            "live_endpoint": provider.get("live_endpoint"),
         }
         # Only a leg we can actually probe counts as checked. Anything else is
         # listed as a manual link so the coverage line never overstates itself.

@@ -68,6 +68,16 @@ class TestMap(unittest.TestCase):
         for pid in ("npm", "openai", "cloudflare", "github", "dockerhub", "stripe"):
             self.assertIn(pid, checked, pid)
 
+    def test_matched_entries_carry_live_endpoint(self):
+        """cmd_map is the only place that copies table fields into the entries
+        probe_one actually reads. A field added to the table but never copied
+        here is invisible to probe_one no matter what the CLI flag says --
+        exactly the bug this test exists to catch."""
+        mp = dp.cmd_map(dp.cmd_scan(os.path.join(FIXTURES, "node-app")), TABLE)
+        by_id = {e["id"]: e for e in mp["matched"]}
+        self.assertEqual(by_id["github"]["live_endpoint"], "https://api.github.com")
+        self.assertIsNone(by_id["aws"]["live_endpoint"]) if "aws" in by_id else None
+
     def test_reason_is_traceable(self):
         mp = dp.cmd_map(dp.cmd_scan(os.path.join(FIXTURES, "node-app")), TABLE)
         by_id = {e["id"]: e for e in mp["matched"]}
