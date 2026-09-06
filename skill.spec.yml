@@ -54,7 +54,7 @@ phases:
     adapter: probe
     optional: true
     default_off: true
-    action: "Only for a row the status feed already marked operational: one credential-free GET against that provider's real API host (12 of 13 providers; AWS excluded, no single canonical endpoint). Any HTTP response counts as reachable. Never changes severity — attaches a (!) note only when unreachable, meaning the status page may be stale."
+    action: "One credential-free GET against a provider's real API host (12 of 13 providers; AWS excluded, no single canonical endpoint; 'unknown' rows excluded, a different failure mode). Any HTTP response counts as reachable. Never changes severity — attaches a (!) note when an 'operational' row is unreachable (status page may be stale), or an (i) note when a problem-state row IS reachable (incident may be narrower than the page suggests)."
     unit: "@u4"
   - id: self
     adapter: probe

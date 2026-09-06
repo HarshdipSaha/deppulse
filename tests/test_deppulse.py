@@ -201,9 +201,16 @@ class TestShouldDirectCheck(unittest.TestCase):
     def test_off_when_verify_flag_is_false(self):
         self.assertFalse(dp.should_direct_check("operational", False, "https://api.github.com"))
 
-    def test_off_for_a_non_operational_verdict(self):
-        self.assertFalse(dp.should_direct_check("degraded", True, "https://api.github.com"))
-        self.assertFalse(dp.should_direct_check("partial_outage", True, "https://api.github.com"))
+    def test_fires_on_a_problem_state_too(self):
+        """A problem-state verdict is exactly the other direction a status page
+        can be wrong: it may say degraded/outage when the real host still
+        answers fine, which the check should be able to flag too."""
+        for sev in ("degraded", "partial_outage", "major_outage", "maintenance"):
+            self.assertTrue(dp.should_direct_check(sev, True, "https://api.github.com"), sev)
+
+    def test_off_for_unknown(self):
+        """'unknown' is an allowlist miss or fetch error, not a real verdict in
+        either direction, so a direct check adds nothing there."""
         self.assertFalse(dp.should_direct_check("unknown", True, "https://api.github.com"))
 
     def test_off_when_provider_has_no_live_endpoint(self):
@@ -256,6 +263,39 @@ class TestVerifyRendering(unittest.TestCase):
         # The whole point: a discrepancy is a note, never a verdict change.
         self.assertEqual(board["verdict"]["level"], "operational")
         self.assertEqual(board["rows"][0]["severity"], "operational")
+
+    def _fake_degraded(self, direct_check=None):
+        mapped = {
+            "matched": [], "manual": [],
+            "counts": {"detected": 1, "matched": 1, "no_status_page": 0},
+            "scanned_files": ["package.json"], "n_dependencies": 1, "table_version": "v3",
+        }
+        row = {"id": "cloudflare", "name": "Cloudflare", "status_url": "https://www.cloudflarestatus.com",
+               "reason": "wrangler (package.json)", "leg": "json",
+               "severity": "partial_outage", "detail": "some incident", "incidents": ["some incident"]}
+        if direct_check is not None:
+            row["direct_check"] = direct_check
+        return mapped, {"statuses": [row]}
+
+    def test_no_reverse_note_when_direct_check_also_failed(self):
+        """A problem-state row whose direct check ALSO fails is not a
+        discrepancy -- both signals agree something's wrong -- so no note."""
+        mapped, probed = self._fake_degraded(
+            {"url": "https://api.cloudflarestatus-real.example", "reachable": False, "error": "URLError"})
+        out = dp.render_board(dp.build_board(mapped, probed), use_emoji=False)
+        self.assertNotIn("(i)", out)
+        self.assertNotIn("(!)", out)
+
+    def test_reverse_note_when_problem_state_is_actually_reachable(self):
+        mapped, probed = self._fake_degraded(
+            {"url": "https://api.cloudflare.com/client/v4", "reachable": True, "http_status": 404})
+        board = dp.build_board(mapped, probed)
+        out = dp.render_board(board, use_emoji=False)
+        self.assertIn("(i)", out)
+        self.assertIn("api.cloudflare.com", out)
+        self.assertNotIn("(!)", out)
+        # Still additive: the note never touches the row's own severity.
+        self.assertEqual(board["rows"][0]["severity"], "partial_outage")
 
 
 class TestDockerfileFrom(unittest.TestCase):

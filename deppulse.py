@@ -8,10 +8,13 @@ checks each matched provider's live incident state (Atlassian Statuspage
 summary.json), and prints ONE worst-first traffic-light board with a single
 top verdict plus an honest coverage line.
 
---verify adds one more check: for a provider whose status page already says
-"operational", it also GETs that provider's real API host (not its status
-page) to catch the case where the status page hasn't caught up to reality
-yet. It never changes a verdict, only adds a note when the two disagree.
+--verify adds one more check, in both directions: for a provider whose status
+page says "operational", it also GETs that provider's real API host (not its
+status page) to catch a status page that hasn't caught up to reality yet; for
+a provider whose status page reports a problem, it does the same check to
+flag when the real host still answers fine, which may mean the incident is
+narrower than the page suggests. It never changes a verdict, only adds a note
+when the two disagree.
 
 Standard library only. No credentials. No writes to your repo.
 
@@ -554,13 +557,17 @@ def _fetch(url, timeout):
     return json.loads(_decode(raw))
 
 
+DIRECT_CHECK_SEVERITIES = {"operational"} | PROBLEM_STATES
+
+
 def should_direct_check(severity, verify, live_endpoint):
-    """--verify only spends the extra request where it can teach us something: a
-    status page that says "operational" is exactly the case a stale status page
-    looks identical to a real one, so that's the only time a direct probe adds
-    information. A degraded/outage verdict already told you something's wrong;
-    confirming reachability there doesn't change the verdict, so don't bother."""
-    return bool(verify and live_endpoint and severity == "operational")
+    """--verify checks both directions a status page can be wrong in: green when
+    the real host is unreachable (a stale "operational"), and red when the real
+    host answers fine (the status page being cautious about something this
+    check cannot see, or itself stale). "unknown" is a different failure mode
+    -- an allowlist miss or a fetch error -- and a direct check adds nothing
+    there, so it's the one severity this never fires for."""
+    return bool(verify and live_endpoint and severity in DIRECT_CHECK_SEVERITIES)
 
 
 def probe_direct(url, timeout):
@@ -745,9 +752,13 @@ def render_board(board, use_emoji=True):
         out.append(line.rstrip())
         out.append("      %s  <- included because: %s" % (r["status_url"], r["reason"]))
         dc = r.get("direct_check")
-        if dc and not dc.get("reachable"):
+        if dc and r["severity"] == "operational" and not dc.get("reachable"):
             out.append("      (!) status page says operational, but %s did not respond (%s) "
                        "-- the status page may be stale" % (dc.get("url"), dc.get("error", "no response")))
+        elif dc and r["severity"] != "operational" and dc.get("reachable"):
+            out.append("      (i) status page says %s, but %s responded normally (HTTP %s) "
+                       "-- may be a partial issue this check can't see, or the status page being cautious"
+                       % (r["status_text"], dc.get("url"), dc.get("http_status")))
     if board.get("self"):
         s = board["self"]
         state = ("reachable, HTTP %s" % s.get("http_status")) if s.get("reachable") else "UNREACHABLE"
