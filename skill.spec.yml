@@ -2,7 +2,7 @@
 # Machine-checkable summary of what this Play does, what it may touch, and how a
 # run is proven complete. Audit this before you run it: it is the whole story.
 name: deppulse
-version: 1
+version: 2
 summary: >
   Zero-credential, read-only status board. Scans the current repo's lockfiles,
   maps the dependencies you actually use to a pinned provider->status-page table,
@@ -23,11 +23,11 @@ inputs:
     type: csv
     required: false
     note: "Override auto-detection; check exactly these provider ids."
-  - name: browser
+  - name: verify
     type: flag
     required: false
     default: false
-    note: "Enable the best-effort browser leg for JSON-less pages (AWS, Stripe). Off by default."
+    note: "For a provider whose status page already says operational, also GET its real API host to catch a stale status page. Off by default; adds 12 hosts to the ones DepPulse may contact."
   - name: url
     type: url
     required: false
@@ -50,11 +50,11 @@ phases:
     adapter: probe
     action: "Credential-free public GET of each matched JSON provider's /api/v2/summary.json (fan-out). Parse indicator + components + active incidents. Any failure degrades ONE row to 'unknown'."
     unit: "@u3"
-  - id: browse
-    adapter: browse
+  - id: verify
+    adapter: probe
     optional: true
     default_off: true
-    action: "Best-effort read-only read of JSON-less status pages (AWS Health, Stripe). Degrades to 'unknown' on drift/timeout."
+    action: "Only for a row the status feed already marked operational: one credential-free GET against that provider's real API host (12 of 13 providers; AWS excluded, no single canonical endpoint). Any HTTP response counts as reachable. Never changes severity — attaches a (!) note only when unreachable, meaning the status page may be stale."
     unit: "@u4"
   - id: self
     adapter: probe
@@ -76,10 +76,7 @@ allowed_tools:            # deny-by-default; everything not listed is forbidden
     methods: [GET]
     auth: none
     hosts_from: adapters/status-allowlist.txt   # network is pinned to this allowlist
-  browse:
-    read_only: true
-    default: off
-    hosts_from: adapters/status-allowlist.txt
+    verify_hosts_gated_by: "row severity == operational AND --verify passed"
   extract:
     pure: true
 
@@ -89,7 +86,7 @@ effects:
   network:
     egress: GET-only
     allowlist: adapters/status-allowlist.txt
-    note: "Plus, only if you pass --url, one GET to the host you name."
+    note: "Plus, only if you pass --url, one GET to the host you name. Plus, only if you pass --verify, one GET per operational-per-status-page provider to that provider's real API host (never AWS, which has none declared)."
 
 doctor_expectation:       # what a clean run should show
   credential_reads: none
@@ -107,6 +104,7 @@ checks:                   # completion proof — all must hold, checkable from t
   - "verdict degraded-count equals the number of rows in a problem state"
   - "coverage line X/Y/Z equals @u2.counts"
   - "re-composing from the same @u2/@u3 yields a byte-identical board (determinism)"
+  - "a --verify discrepancy note never changes the row's severity or the top verdict"
 
 completion_proof: >
   A run is complete and trustworthy when the checks above pass. Determinism is

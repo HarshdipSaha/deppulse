@@ -180,6 +180,74 @@ class TestComposeAndDeterminism(unittest.TestCase):
         self.assertIn("all systems green", board["verdict"]["text"])
 
 
+class TestShouldDirectCheck(unittest.TestCase):
+    """--verify must only fire where it can teach us something: an
+    "operational" status-page verdict, with --verify on, and a live_endpoint
+    actually declared for that provider (AWS has none)."""
+
+    def test_fires_only_when_all_three_hold(self):
+        self.assertTrue(dp.should_direct_check("operational", True, "https://api.github.com"))
+
+    def test_off_when_verify_flag_is_false(self):
+        self.assertFalse(dp.should_direct_check("operational", False, "https://api.github.com"))
+
+    def test_off_for_a_non_operational_verdict(self):
+        self.assertFalse(dp.should_direct_check("degraded", True, "https://api.github.com"))
+        self.assertFalse(dp.should_direct_check("partial_outage", True, "https://api.github.com"))
+        self.assertFalse(dp.should_direct_check("unknown", True, "https://api.github.com"))
+
+    def test_off_when_provider_has_no_live_endpoint(self):
+        self.assertFalse(dp.should_direct_check("operational", True, None))
+
+    def test_every_table_provider_except_aws_has_a_live_endpoint(self):
+        for provider in TABLE["providers"]:
+            if provider["id"] == "aws":
+                self.assertNotIn("live_endpoint", provider)
+            else:
+                self.assertIn("live_endpoint", provider, provider["id"])
+
+
+class TestVerifyRendering(unittest.TestCase):
+    """The discrepancy note is additive: it must never change severity, must
+    render only when unreachable, and must stay silent when --verify is off
+    or the direct check succeeded (matches the status page)."""
+
+    def _fake_operational(self, direct_check=None):
+        mapped = {
+            "matched": [], "manual": [],
+            "counts": {"detected": 1, "matched": 1, "no_status_page": 0},
+            "scanned_files": ["package.json"], "n_dependencies": 1, "table_version": "v3",
+        }
+        row = {"id": "github", "name": "GitHub", "status_url": "https://www.githubstatus.com",
+               "reason": "@octokit/rest (package.json)", "leg": "json",
+               "severity": "operational", "detail": "", "incidents": []}
+        if direct_check is not None:
+            row["direct_check"] = direct_check
+        return mapped, {"statuses": [row]}
+
+    def test_no_note_when_verify_never_ran(self):
+        mapped, probed = self._fake_operational()
+        out = dp.render_board(dp.build_board(mapped, probed), use_emoji=False)
+        self.assertNotIn("(!)", out)
+
+    def test_no_note_when_direct_check_succeeded(self):
+        mapped, probed = self._fake_operational(
+            {"url": "https://api.github.com", "reachable": True, "http_status": 200})
+        out = dp.render_board(dp.build_board(mapped, probed), use_emoji=False)
+        self.assertNotIn("(!)", out)
+
+    def test_note_appears_when_direct_check_failed(self):
+        mapped, probed = self._fake_operational(
+            {"url": "https://api.github.com", "reachable": False, "error": "URLError"})
+        board = dp.build_board(mapped, probed)
+        out = dp.render_board(board, use_emoji=False)
+        self.assertIn("(!)", out)
+        self.assertIn("api.github.com", out)
+        # The whole point: a discrepancy is a note, never a verdict change.
+        self.assertEqual(board["verdict"]["level"], "operational")
+        self.assertEqual(board["rows"][0]["severity"], "operational")
+
+
 class TestDockerfileFrom(unittest.TestCase):
     """Real Dockerfiles (cal.com's, for one) put flags and stage aliases on FROM."""
 

@@ -72,6 +72,9 @@ Produce a machine-readable board to pipe into your agent or CI.
 `--no-emoji` 
 Use ASCII status lights instead of emoji.
 
+`--verify` 
+For a provider whose status page already says operational, also GET that provider's real API host (not its status page). A status page can lag reality; this catches the gap. It never changes a verdict, only adds a `(!)` note when the two disagree — e.g. the status page says green but the real endpoint didn't respond. Adds 12 hosts to the ones DepPulse may contact (listed below); off by default, so a plain run never touches them.
+
 ## What it does under the hood
 
 The system runs four distinct steps. 
@@ -93,6 +96,10 @@ The provider table covers 13 providers, all of them checked live: GitHub, npm, P
 
 All 13 endpoints were verified live on September 5, 2026, including the two non-Statuspage feeds (AWS, Stripe). Adding a provider is a one-entry pull request to `adapters/dep-providers.table.json`. Coverage grows as people use it.
 
+Twelve of those 13 also carry a `live_endpoint`: a real API host used only by `--verify`, only when that provider's status page already says operational. AWS has no single canonical global endpoint, so it's excluded from `--verify` and its status-feed check is unchanged.
+
 ## Trust surface at a glance
 
 Read `skill.spec.yml` for the machine-checkable contract. It enforces deny-by-default tool boundaries, empty credential sets, empty write sets, the pinned network allowlist, and all completion-proof checks.
+
+By default DepPulse contacts only the 13 status-page hosts in `adapters/status-allowlist.txt`. Passing `--verify` adds 12 more — the real API host for every provider except AWS — but only ever contacts one of them for a provider whose status page just told you it's fine. Open that file and read it; it's short, and it's the complete list either way.

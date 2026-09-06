@@ -1,7 +1,9 @@
 # DepPulse network allowlist (pinned).
-# The probe/browse legs refuse to contact any host not listed here.
+# The probe leg refuses to contact any host not listed here.
 # This is the COMPLETE set of hosts DepPulse may reach. Audit it before running.
 # Keep in sync with adapters/dep-providers.table.json.
+
+# Status-feed hosts (always contacted by `run`/`probe`):
 www.githubstatus.com
 status.npmjs.org
 status.python.org
@@ -15,3 +17,19 @@ status.twilio.com
 status.datadoghq.com
 health.aws.amazon.com
 status.stripe.com
+
+# Direct-verification hosts (only contacted with --verify, and only for a
+# provider whose status feed already says "operational" -- this is the check
+# that catches a status page that hasn't caught up to reality yet):
+api.github.com
+registry.npmjs.org
+pypi.org
+registry-1.docker.io
+api.openai.com
+api.anthropic.com
+api.cloudflare.com
+api.vercel.com
+api.netlify.com
+api.twilio.com
+api.datadoghq.com
+api.stripe.com

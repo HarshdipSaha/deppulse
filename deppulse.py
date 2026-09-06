@@ -8,6 +8,11 @@ checks each matched provider's live incident state (Atlassian Statuspage
 summary.json), and prints ONE worst-first traffic-light board with a single
 top verdict plus an honest coverage line.
 
+--verify adds one more check: for a provider whose status page already says
+"operational", it also GETs that provider's real API host (not its status
+page) to catch the case where the status page hasn't caught up to reality
+yet. It never changes a verdict, only adds a note when the two disagree.
+
 Standard library only. No credentials. No writes to your repo.
 
 This file exposes five subcommands that mirror the DepPulse rote Play's steps,
@@ -548,7 +553,39 @@ def _fetch(url, timeout):
     return json.loads(_decode(raw))
 
 
-def probe_one(entry, timeout, retries, allow_hosts):
+def should_direct_check(severity, verify, live_endpoint):
+    """--verify only spends the extra request where it can teach us something: a
+    status page that says "operational" is exactly the case a stale status page
+    looks identical to a real one, so that's the only time a direct probe adds
+    information. A degraded/outage verdict already told you something's wrong;
+    confirming reachability there doesn't change the verdict, so don't bother."""
+    return bool(verify and live_endpoint and severity == "operational")
+
+
+def probe_direct(url, timeout):
+    """A GET against the provider's real API host, not its status page. Any HTTP
+    response -- 200, 401, 403, whatever -- proves DNS resolved, TLS shook hands,
+    and something answered, which is the only claim being made here. This does
+    not, and cannot, check whether the service is functioning correctly; it only
+    catches the case where a status page says green but the host is unreachable.
+    Modeled on probe_self, which makes the identical claim about your own URL."""
+    result = {"url": url}
+    try:
+        t0 = time.time()
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = resp.getcode()
+        result.update(http_status=code, latency_ms=int((time.time() - t0) * 1000), reachable=True)
+    except urllib.error.HTTPError as exc:
+        # An HTTP error status is still a response: the server is there and
+        # answering, which is exactly what this check is trying to confirm.
+        result.update(http_status=exc.code, reachable=True)
+    except Exception as exc:  # noqa: BLE001 - a probe must never raise
+        result.update(http_status=None, reachable=False, error=type(exc).__name__)
+    return result
+
+
+def probe_one(entry, timeout, retries, allow_hosts, verify=False):
     url = entry.get("summary_json_url")
     result = {
         "id": entry["id"],
@@ -575,6 +612,16 @@ def probe_one(entry, timeout, retries, allow_hosts):
                 incidents=incidents,
                 latency_ms=int((time.time() - t0) * 1000),
             )
+            live_endpoint = entry.get("live_endpoint")
+            if should_direct_check(severity, verify, live_endpoint):
+                live_host = _host_of(live_endpoint)
+                if not allow_hosts or live_host in allow_hosts:
+                    direct = None
+                    for _ in range(retries + 1):
+                        direct = probe_direct(live_endpoint, timeout)
+                        if direct["reachable"]:
+                            break
+                    result["direct_check"] = direct
             return result
         except (urllib.error.URLError, ValueError, OSError) as exc:
             last_err = type(exc).__name__
@@ -584,12 +631,12 @@ def probe_one(entry, timeout, retries, allow_hosts):
     return result
 
 
-def cmd_probe(mapped, timeout, retries, allow_hosts, max_workers=8):
+def cmd_probe(mapped, timeout, retries, allow_hosts, max_workers=8, verify=False):
     entries = [e for e in mapped.get("matched", []) if e.get("leg") == "json"]
     results = []
     if entries:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futs = {pool.submit(probe_one, e, timeout, retries, allow_hosts): e for e in entries}
+            futs = {pool.submit(probe_one, e, timeout, retries, allow_hosts, verify): e for e in entries}
             for fut in concurrent.futures.as_completed(futs):
                 results.append(fut.result())
     results.sort(key=lambda r: r["id"])
@@ -635,7 +682,7 @@ def build_board(mapped, probed, self_status=None):
 
     rows = []
     for r in statuses:
-        rows.append({
+        row = {
             "id": r["id"],
             "provider": r["name"],
             "severity": r.get("severity", "unknown"),
@@ -643,7 +690,10 @@ def build_board(mapped, probed, self_status=None):
             "detail": r.get("detail", ""),
             "status_url": r["status_url"],
             "reason": r["reason"],
-        })
+        }
+        if "direct_check" in r:
+            row["direct_check"] = r["direct_check"]
+        rows.append(row)
 
     return {
         "verdict": {"level": verdict_level, "text": verdict_text,
@@ -693,6 +743,10 @@ def render_board(board, use_emoji=True):
             line += ' "%s"' % r["detail"]
         out.append(line.rstrip())
         out.append("      %s  <- included because: %s" % (r["status_url"], r["reason"]))
+        dc = r.get("direct_check")
+        if dc and not dc.get("reachable"):
+            out.append("      (!) status page says operational, but %s did not respond (%s) "
+                       "-- the status page may be stale" % (dc.get("url"), dc.get("error", "no response")))
     if board.get("self"):
         s = board["self"]
         state = ("reachable, HTTP %s" % s.get("http_status")) if s.get("reachable") else "UNREACHABLE"
@@ -738,6 +792,9 @@ def main(argv=None):
     pp.add_argument("--timeout", type=float, default=8.0)
     pp.add_argument("--retries", type=int, default=2)
     pp.add_argument("--allowlist", default=DEFAULT_ALLOWLIST)
+    pp.add_argument("--verify", action="store_true",
+                     help="for a provider whose status page says operational, also GET its real "
+                          "API host to catch a status page that hasn't caught up yet")
 
     cp = sub.add_parser("compose", help="merge into the worst-first board (rote extract)")
     cp.add_argument("--map", dest="mapfile", required=True)
@@ -756,6 +813,9 @@ def main(argv=None):
     rp.add_argument("--retries", type=int, default=2)
     rp.add_argument("--format", choices=["board", "json"], default="board")
     rp.add_argument("--no-emoji", action="store_true")
+    rp.add_argument("--verify", action="store_true",
+                     help="for a provider whose status page says operational, also GET its real "
+                          "API host to catch a status page that hasn't caught up yet")
 
     args = p.parse_args(argv)
 
@@ -772,7 +832,7 @@ def main(argv=None):
     if args.cmd == "probe":
         mapped = read_input(args.infile)
         allow = load_allowlist(args.allowlist)
-        print(json.dumps(cmd_probe(mapped, args.timeout, args.retries, allow), indent=2))
+        print(json.dumps(cmd_probe(mapped, args.timeout, args.retries, allow, verify=args.verify), indent=2))
         return 0
 
     if args.cmd == "compose":
@@ -791,7 +851,7 @@ def main(argv=None):
         table = _load_table(args.table)
         mapped = cmd_map(scan, table, args.providers)
         allow = load_allowlist(args.allowlist)
-        probed = cmd_probe(mapped, args.timeout, args.retries, allow)
+        probed = cmd_probe(mapped, args.timeout, args.retries, allow, verify=args.verify)
         self_status = probe_self(args.url, args.timeout) if args.url else None
         board = build_board(mapped, probed, self_status)
         if args.format == "json":
